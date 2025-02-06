@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>看看Rekeless在干什么捏</title>
+  <link href="https://cdn.bootcdn.net/ajax/libs/twitter-bootstrap/5.3.0/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    body {
+      background-image: url('https://pic1.imgdb.cn/item/6798c969d0e0a243d4f85288.png');
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+      min-height: 100vh;
+      position: relative;
+    }
+
+    body::after {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: -1;
+    }
+
+    .status-card {
+      margin: 2rem auto;
+      border-radius: 15px;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      box-shadow: 0 8px 32px rgba(0, 0, 0, 0.1);
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      color: white;
+    }
+
+    .steam-header {
+      background: rgba(23, 26, 33, 0.6) !important;
+    }
+
+    .teamspeak-header {
+      background: rgba(70, 86, 113, 0.6);
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 12px;
+      height: 12px;
+      border-radius: 50%;
+      margin-right: 8px;
+    }
+
+    .online {
+      background: #28a745;
+    }
+
+    .offline {
+      background: #6c757d;
+    }
+
+    .game-cover {
+      max-width: 100%;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+
+    .loading-spinner {
+      width: 3rem;
+      height: 3rem;
+      border-width: 0.2em;
+    }
+
+    .game-time-list {
+      margin-top: 0.5rem;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      border-radius: 10px;
+      padding: 1rem;
+      color: white;
+    }
+
+    .game-time-item {
+      display: flex;
+      align-items: center;
+      padding: 0.5rem 1rem;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.2);
+    }
+
+    .game-time-item:last-child {
+      border-bottom: none;
+    }
+
+    .game-time-title {
+      font-weight: 600;
+      color: white;
+      margin-bottom: 0.5rem;
+    }
+
+    .game-icon {
+      width: 24px;
+      height: 24px;
+      margin-right: 10px;
+    }
+
+    .footer-blur {
+      color: white;
+      background: rgba(255, 255, 255, 0.15);
+      backdrop-filter: blur(8px);
+      padding: 8px 16px;
+      border-radius: 6px;
+      display: inline-block;
+    }
+  </style>
+</head>
+<body>
+  <div class="container py-4">
+    <div class="card status-card">
+      <div class="card-header steam-header d-flex align-items-center">
+        <img src="https://pic1.imgdb.cn/item/67a25b36d0e0a243d4fbd992.png" style="height:28px;margin-right:15px;" alt="Steam Logo">
+        <h4 class="mb-0">在玩游戏吗？</h4>
+      </div>
+      <div class="card-body" id="steam-status">
+        <div class="d-flex justify-content-center py-4">
+          <div class="spinner-border text-primary loading-spinner" role="status"></div>
+        </div>
+      </div>
+    </div>
+    <div class="card status-card mt-4">
+      <div class="card-header teamspeak-header d-flex align-items-center">
+        <img src="https://pic1.imgdb.cn/item/67a259a9d0e0a243d4fbd97d.png" style="height:28px;margin-right:15px;" alt="TeamSpeak Logo">
+        <h4 class="mb-0">在和朋友聊天吗？</h4>
+      </div>
+      <div class="card-body" id="teamspeak-status">
+        <div class="d-flex justify-content-center py-4">
+          <div class="spinner-border text-primary loading-spinner" role="status"></div>
+        </div>
+        <div class="game-time-list" style="max-width: 100%; width: 100%;">
+          <div class="game-time-item d-flex justify-content-between align-items-center">
+            <span class="fw-bold">在线用户</span>
+            <span class="fw-bold">在线时长</span>
+          </div>
+          <div id="user-list"></div>
+        </div>
+      </div>
+    </div>
+    <div class="footer">
+      <div class="container text-center">
+        <div class="footer-blur">
+          <p class="mb-1">本网页由Deepseek R1与OpenAI GPT-4模型生成，由Rekeless进行部署。</p>
+          <p class="mb-1">网页版本：V2.1.6</p>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script>
+    const CONFIG = {
+      apiEndpoints: {
+        steam: '/api/steam/status',
+        teamspeak: '/api/teamspeak/status'
+      },
+      retryPolicy: {
+        maxRetries: 5,
+        baseDelay: 3000
+      }
+    };
+
+    const DataAdapter = {
+      steam(rawData) {
+        return {
+          personaname: rawData.user?.name || '离线用户',
+          avatarfull: rawData.user?.avatar || '//via.placeholder.com/150',
+          personastate: rawData.user?.status_code || 0,
+          game: rawData.current_game ? {
+            name: rawData.current_game.name,
+            img: rawData.current_game.image
+          } : null,
+          top_games: rawData.top_games || []
+        };
+      },
+      teamspeak(rawData) {
+        return {
+          online: rawData.is_online || false,
+          isEmpty: rawData.is_empty || false,
+          serverIp: rawData.connect_info || 'ts.example.com',
+          clientsOnline: rawData.clients?.current || 0,
+          maxClients: rawData.clients?.max || 32,
+          clients: (rawData.client_list || []).map(client => ({
+            name: client.nickname || '匿名用户',
+            idle: client.idle || 0
+          }))
+        };
+      }
+    };
+
+    class DataService {
+      constructor(endpoint) {
+        this.endpoint = endpoint;
+        this.retryCount = 0;
+      }
+
+      async fetch() {
+        try {
+          const response = await fetch(this.endpoint);
+          if (!response.ok) throw new Error(`HTTP错误 ${response.status}`);
+          return await response.json();
+        } catch (error) {
+          if (this.retryCount < CONFIG.retryPolicy.maxRetries) {
+            this.retryCount++;
+            const delay = CONFIG.retryPolicy.baseDelay * Math.pow(2, this.retryCount);
+            await new Promise(resolve => setTimeout(resolve, delay));
+            return this.fetch();
+          }
+          throw error;
+        }
+      }
+    }
+
+    const statusManager = {
+      init() {
+        this.fetchData();
+        this.addVisibilityListener();
+      },
+
+      async fetchData() {
+        try {
+          const [steamService, tsService] = [
+            new DataService(CONFIG.apiEndpoints.steam),
+            new DataService(CONFIG.apiEndpoints.teamspeak)
+          ];
+
+          const [steamRaw, tsRaw] = await Promise.allSettled([
+            steamService.fetch(),
+            tsService.fetch()
+          ]);
+
+          this.updateSteamUI(DataAdapter.steam(steamRaw.value));
+          this.updateTSUI(DataAdapter.teamspeak(tsRaw.value));
+        } catch (error) {
+          this.handleGlobalError(error);
+        }
+      },
+
+      updateSteamUI(data) {
+        const container = document.getElementById('steam-status');
+        if (!data.personaname) {
+          this.showError('steam-status', new Error('无效的Steam数据'));
+          return;
+        }
+        container.innerHTML = this.buildSteamHTML(data);
+      },
+
+      updateTSUI(data) {
+        const container = document.getElementById('teamspeak-status');
+        if (data.online) {
+          container.innerHTML = data.clientsOnline > 0 ?
+            this.buildTSOnlineHTML(data) :
+            this.buildTSEmptyHTML(data);
+        } else {
+          container.innerHTML = this.buildTSOfflineHTML(data);
+        }
+      },
+
+      buildSteamHTML(data) {
+        return `
+          <div class="row align-items-center">
+            <div class="col-md-4 text-center">
+              <img src="${data.avatarfull}" 
+                class="rounded-circle mb-3 shadow" 
+                width="120"
+                alt="用户头像">
+              <h5 class="mb-2">${data.personaname}</h5>
+              <div class="d-flex align-items-center justify-content-center">
+                <span class="status-indicator ${data.personastate > 0 ? 'online' : 'offline'}"></span>
+                <span>${this.getSteamStatusText(data.personastate)}</span>
+              </div>
+            </div>
+            ${data.game ? `
+            <div class="col-md-8">
+              <div class="card game-card">
+                <div class="row g-0">
+                  <div class="col-md-4">
+                    <img src="${data.game.img}" 
+                      class="game-cover" 
+                      alt="游戏封面">
+                  </div>
+                  <div class="col-md-8">
+                    <div class="card-body">
+                      <h5 class="card-title">${data.game.name}</h5>
+                      <p class="card-text text-white">正在游玩中</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>` : ''}
+            ${!data.game && data.top_games.length > 0 ? `
+            <div class="col-md-8">
+              <div class="game-time-list">
+                <h6 class="game-time-title">🏆 Rekeless时长排名前三的游戏</h6>
+                ${data.top_games.map(game => `
+                  <div class="game-time-item">
+                    <img src="${game.icon}" class="game-icon" alt="游戏图标">
+                    <span>${game.name}</span>&nbsp;&nbsp;<span>${game.playtime}小时</span>
+                  </div>
+                `).join('')}
+              </div>
+            </div>` : ''}
+          </div>`;
+      },
+
+      buildTSOnlineHTML(data) {
+        return `
+          <div class="row">
+            <div class="col-md-6">
+              <h5 class="d-flex align-items-center text-white mb-1">
+                <span class="status-indicator online"></span>
+                服务器状态：在线
+              </h5>
+              <div class="mb-3">
+                <span class="fw-bold">在线人数：</span>
+                ${data.clientsOnline}/${data.maxClients}
+              </div>
+              <a href="ts3server://${data.serverIp}?port=9987" class="btn btn-dark px-4">加入服务器</a>
+            </div>
+            <div class="col-md-6 d-flex justify-content-start align-items-start">
+              <div class="game-time-list" style="max-width: 400px; width: 100%;">
+                <div class="game-time-item d-flex justify-content-between align-items-center">
+                  <span class="fw-bold">在线用户</span>
+                  <span class="fw-bold">在线时长</span>
+                </div>
+                ${data.clients.map(client => `
+                  <div class="game-time-item d-flex justify-content-between align-items-center">
+                    <span>${client.name}</span>
+                    <small>${client.idle}分钟</small>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>`;
+      },
+
+      buildTSEmptyHTML(data) {
+        return `
+          <div class="row">
+            <div class="col-md-6">
+              <h5 class="d-flex align-items-center text-white mb-1">
+                <span class="status-indicator online"></span>
+                服务器状态：在线
+              </h5>
+              <div class="mb-3">
+                <span class="fw-bold">在线人数：</span>
+                ${data.clientsOnline}/${data.maxClients}
+              </div>
+              <a href="ts3server://${data.serverIp}?port=9987" class="btn btn-dark px-4">加入服务器</a>
+            </div>
+            <div class="col-md-6 d-flex justify-content-start align-items-start">
+              <div class="game-time-list d-flex justify-content-center align-items-center text-center flex-grow-1" style="margin-top:0;">
+                现在没有人在服务器内喔~
+              </div>
+            </div>
+          </div>`;
+      },
+
+      buildTSOfflineHTML() {
+        return `
+          <div class="alert alert-warning">
+            <h5 class="mb-2">服务器离线</h5>
+            <p class="mb-0">当前无法连接到TeamSpeak服务器</p>
+          </div>`;
+      },
+
+      getSteamStatusText(state) {
+        const statusMap = {
+          0: '离线', 1: '在线', 2: '忙碌',
+          3: '离开', 4: '打盹', 5: '想要交易', 6: '想要玩游戏'
+        };
+        return statusMap[state] || '未知状态';
+      },
+
+      handleGlobalError(error) {
+        console.error('全局错误:', error);
+        [...document.querySelectorAll('.card-body')].forEach(container => {
+          container.innerHTML = `
+            <div class="alert alert-danger">
+              <h5>系统连接异常</h5>
+              <p>${error.message}</p>
+              <button onclick="statusManager.fetchData()" class="btn btn-sm btn-secondary">
+                重试连接
+              </button>
+            </div>
+          `;
+        });
+      },
+
+      addVisibilityListener() {
+        document.addEventListener('visibilitychange', () => {
+          if (document.visibilityState === 'visible') {
+            this.fetchData();
+          }
+        });
+      },
+
+      scheduleUpdate() {
+        setInterval(() => this.fetchData(), 30000);
+      }
+    };
+
+    document.addEventListener('DOMContentLoaded', () => {
+      statusManager.init();
+      statusManager.scheduleUpdate();
+    });
+  </script>
+</body>
+</html>
